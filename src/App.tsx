@@ -1,6 +1,7 @@
-import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PublicKey, Hex, SimpleTransaction, AptosScriptComposer, CallArgument, TransactionPayloadScript, Deserializer, Serializer, Serialized, Script, deserializeFromScriptArgument, ScriptFunctionArgument } from "@aptos-labs/ts-sdk";
+import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PublicKey, Hex, SimpleTransaction, AptosScriptComposer, CallArgument, TransactionPayloadScript, Deserializer, Serializer, Serialized, Script, deserializeFromScriptArgument, ScriptFunctionArgument, TypeTag } from "@aptos-labs/ts-sdk";
 import { WalletSelector } from "@aptos-labs/wallet-adapter-ant-design";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { Buffer } from "buffer";
 import { useState } from "react";
 
 function App() { 
@@ -40,12 +41,33 @@ function App() {
         })
 
         let deserializer = new Deserializer(transaction.rawTransaction.payload.bcsToBytes());
-        
+        const index = deserializer.deserializeUleb128AsU32();
+        if (index !== 0) {
+          throw new Error("Invalid index for TransactionPayloadScript");
+        }
         const bytecode = deserializer.deserializeBytes();
-        let script = new Script(bytecode, [], []);
+        const type_args = deserializer.deserializeVector(TypeTag);
+        const length = deserializer.deserializeUleb128AsU32();
+        const args = new Array<ScriptFunctionArgument>();
+        for (let i = 0; i < length; i += 1) {
+          const scriptArgument = deserializeFromScriptArgument(deserializer);
+          args.push(scriptArgument);
+        }
+        let script = new Script(bytecode, type_args, args);
+
+        /*
+        const bytecode = deserializer.deserializeBytes();
+        const type_args = deserializer.deserializeVector(TypeTag);
+        const length = deserializer.deserializeUleb128AsU32();
+        const args = new Array<ScriptFunctionArgument>();
+        for (let i = 0; i < length; i += 1) {
+          const scriptArgument = deserializeFromScriptArgument(deserializer);
+          args.push(scriptArgument);
+        }
+        return new Script(bytecode, type_args, args);
+        */
 
         // let payload = TransactionPayloadScript.load();
-          console.log(script.type_args.forEach((arg) => console.log(arg.toString())));
         signAndSubmitTransaction({
           data: {
             typeArguments: script.type_args,
