@@ -43,6 +43,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
         onError={(error: any) => {
           console.log(error)
         }}
+        autoConnect={true}
       >
         {children}
       </AptosWalletAdapterProvider>

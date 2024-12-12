@@ -1,4 +1,4 @@
-import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PublicKey, Hex } from "@aptos-labs/ts-sdk";
+import { Aptos, AptosConfig, Network, Account, AccountAddress, Ed25519PublicKey, Hex, SimpleTransaction, AptosScriptComposer, CallArgument, TransactionPayloadScript, Deserializer, Serializer, Serialized, Script, deserializeFromScriptArgument, ScriptFunctionArgument } from "@aptos-labs/ts-sdk";
 import { WalletSelector } from "@aptos-labs/wallet-adapter-ant-design";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { useState } from "react";
@@ -6,38 +6,62 @@ import { useState } from "react";
 function App() { 
 
   const [state, setState] = useState("");
-  const {account, } = useWallet();
+  const {account, signAndSubmitTransaction} = useWallet();
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
       <WalletSelector />
       <button disabled={! account?.address} onClick={async ()=>{
 
-        let aptos_client = new Aptos(new AptosConfig({network: Network.MAINNET}));
+        let aptos_client = new Aptos(new AptosConfig({network: Network.TESTNET}));
 
-       let txn = await aptos_client.transaction.build.simple({
-            sender: account!.address,
-            data :{
-              typeArguments:[],
-              function: "0x1::resource_account::create_resource_account",
-              functionArguments: [
-                Hex.fromHexInput(Account.generate().accountAddress.toString()).toUint8Array(),
-                Hex.fromHexInput(AccountAddress.fromString(account!.address).toString()).toUint8Array()
-              ]
-            },
-            withFeePayer: true
-        });
-
-        let i = await aptos_client.transaction.simulate.simple({
-          signerPublicKey: new Ed25519PublicKey(account!.publicKey as string),
-          transaction: txn,
-          // address : 0xea0b566a88b0796f33d8a037d006bf544c6f82b3288c215ed2a804090b81c159
-          feePayerPublicKey: new Ed25519PublicKey("0xc53e27fc56b9573c8547f44973b7cc10a9c1656730d7b86152f70f73d65dbf62")
+        const transaction = await aptos_client.transaction.build.scriptComposer({
+            sender: account!.address,  
+            builder: async (builder: AptosScriptComposer) => {
+                const coin = await builder.addBatchedCalls({
+                function: "0x1::coin::withdraw",
+                  functionArguments: [CallArgument.new_signer(0), 1],
+                  typeArguments: ["0x1::aptos_coin::AptosCoin"],
+              });
+        
+           // Pass the returned value from the first function call to the second call
+              const fungibleAsset = await builder.addBatchedCalls({
+               function: "0x1::coin::coin_to_fungible_asset",
+                functionArguments: [coin[0]],
+                 typeArguments: ["0x1::aptos_coin::AptosCoin"],
+              });
+        
+              await builder.addBatchedCalls({
+            function: "0x1::primary_fungible_store::deposit",
+                functionArguments: ["0x1", fungibleAsset[0]],
+               typeArguments: [],
+             });
+             return builder;
+           }
         })
 
-        console.log(i[0])
-        setState(JSON.stringify(i[0], null, "\t" ))
+        let deserializer = new Deserializer(transaction.rawTransaction.payload.bcsToBytes());
+        
+        const bytecode = deserializer.deserializeBytes();
+        let script = new Script(bytecode, [], []);
 
-      }}> Test </button>
+        // let payload = TransactionPayloadScript.load();
+          console.log(script.type_args.forEach((arg) => console.log(arg.toString())));
+        signAndSubmitTransaction({
+          data: {
+            typeArguments: script.type_args,
+            bytecode: script.bytecode,
+            functionArguments: script.args.map((arg) => {
+              let se = new Serializer ();
+              arg.serializeForScriptFunction(se);
+              return new Serialized(se.toUint8Array());
+            }),
+          }
+        }).then((result)=>{
+          setState(JSON.stringify(result));
+          console.log(result);
+        })  
+
+      }}> Transfer </button>
       <div>
         {state}
       </div>
